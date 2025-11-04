@@ -1,0 +1,19 @@
+{
+  "name": "goroute-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "GoRoute Bus Booking Bot for WhatsApp, deployed on Vercel with Firebase and Razorpay integration.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "express": "^4.19.2",
+    "firebase-admin": "^12.1.0",
+    "razorpay": "^2.9.2",
+    "crypto": "^1.0.1"
+  },
+  "devDependencies": {
+    "vercel": "^34.1.7"
+  }
+}
