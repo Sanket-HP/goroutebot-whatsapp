@@ -8,7 +8,7 @@ const crypto = require('crypto');
 // --- WhatsApp Configuration ---
 // NOTE: These are placeholders. In a real scenario, you would use a specific provider (Meta/Twilio)
 // and these variables would contain the real endpoint and auth token.
-const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || 'https://api.whatsapp.com/v1/messages/';
+const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v19.0/';
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 // NEW: This is the token that must match the 'Verify Token' entered in Meta's dashboard.
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN; 
@@ -292,22 +292,34 @@ async function sendWhatsAppMessage(chatId, text, replyMarkup = null) {
     }
 
     try {
-        // This payload assumes a generic simple text API structure.
+        // This payload assumes the Meta Cloud API format for sending text messages
         const payload = {
+            messaging_product: "whatsapp",
             to: String(chatId),
-            text: formattedText,
-            type: 'text',
-            // In a real implementation, replyMarkup would be processed here (e.g., as interactive buttons)
+            type: "text",
+            text: {
+                body: formattedText
+            }
         };
 
-        // Suppressing actual axios call for environment safety and simplicity.
-        // In a real bot, you'd replace this:
-        // const response = await axios.post(WHATSAPP_API_URL, payload, { headers: { 'Authorization': `Bearer ${WHATSAPP_TOKEN}` } });
+        const phone_number_id = '837590122771193'; // Using the ID from the Meta Quickstart page.
 
-        console.log(`[WHATSAPP] Message sent successfully to ${chatId}. Content: ${formattedText.substring(0, 50)}...`);
+        // Send message using Meta Cloud API
+        const response = await axios.post(`${WHATSAPP_API_URL}${phone_number_id}/messages`, payload, {
+            headers: {
+                'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        console.log(`[WHATSAPP] Message sent successfully to ${chatId}. Status: ${response.status}. Content: ${formattedText.substring(0, 50)}...`);
     } catch (error) {
         // Generic error logging for WhatsApp API failure
-        console.error(`❌ WHATSAPP API ERROR for ${chatId}: ${error.message}`);
+        console.error(`❌ WHATSAPP API ERROR for ${chatId}: ${error.message || error.response?.data?.error?.message}`);
+        // Log status 400 errors from Meta
+        if (error.response && error.response.status === 400) {
+            console.error("Meta API 400 Error Details:", error.response.data);
+        }
     }
 }
 
@@ -2634,48 +2646,71 @@ app.get('/api/webhook', (req, res) => {
 
 
 app.post('/api/webhook', async (req, res) => {
-    // --- SIMULATED GENERIC WHATSAPP WEBHOOK PAYLOAD ---
-    // In a real scenario (e.g., Twilio/Meta), you would parse a complex JSON/form data payload
-    // to extract the user's phone number and the message content.
-    // We assume a simplified structure where the body contains 'chatId' (phone number) and 'text'
-    const update = req.body;
-    let chatId;
-    let text;
-    let user = {}; // Placeholder for user data
-
-    // This is a minimal guess for a generic provider's incoming payload:
-    if (update.chatId && update.text) {
-        chatId = String(update.chatId); // This is the user's phone number
-        text = update.text;
-        // In a real payload, we'd extract 'user' details like first_name from the provider's data
-        user.first_name = update.userName || 'WhatsApp User';
-        user.last_name = '';
-
-    } else {
-        // Log the unrecognized payload structure
-        console.warn("❌ WARNING: Unrecognized WhatsApp webhook payload structure.");
-        return res.status(200).send('OK (Unrecognized Payload)');
-    }
-    // ----------------------------------------------------
-
-    try { getFirebaseDb(); } catch (e) {
-        console.error("CRITICAL FIREBASE INITIALIZATION ERROR on webhook call:", e.message);
-        if (chatId) {
-             await sendWhatsAppMessage(chatId, MESSAGES.db_error + ". FIX: Check 'FIREBASE_CREDS_BASE64' variable in Vercel.");
-        }
-        return res.status(500).send('Initialization Error');
-    }
-
-    try {
-        await handleUserMessage(chatId, text, user);
-    } catch (error) {
-        console.error("Error in main handler:", error.message);
-        if (chatId) {
-            await sendWhatsAppMessage(chatId, "❌ A critical application error occurred. Please try /start again.");
-        }
-    }
-
+    // Acknowledge the webhook immediately to avoid retries
     res.status(200).send('OK');
+
+    const update = req.body;
+    let chatId = null;
+    let text = null;
+    let user = { first_name: 'WhatsApp User', last_name: '' }; 
+
+    // --- META CLOUD API PAYLOAD PARSING ---
+    try {
+        if (update.object === 'whatsapp_business_account' && update.entry) {
+            
+            // Go through entry/changes structure to find the message content
+            const change = update.entry[0].changes[0];
+            
+            if (change.field === 'messages') {
+                const messageData = change.value.messages[0];
+                const contacts = change.value.contacts[0];
+                
+                chatId = messageData.from; // User's phone number
+                user.first_name = contacts.profile.name;
+
+                if (messageData.type === 'text') {
+                    text = messageData.text.body;
+                } 
+                // Handle button replies (interactive type)
+                else if (messageData.type === 'interactive') {
+                    if (messageData.interactive.type === 'button_reply') {
+                        // For a simple button reply, the text is contained in the reply.title
+                        text = messageData.interactive.button_reply.title; 
+                    } else if (messageData.interactive.type === 'list_reply') {
+                        // For a list selection, the text is contained in the list_reply.title or id
+                        text = messageData.interactive.list_reply.title || messageData.interactive.list_reply.id;
+                    }
+                }
+                
+                // If text and chatId found, proceed to core handler
+                if (chatId && text) {
+                    console.log(`[META PARSE] Message from ${chatId}: ${text}`);
+                    try { getFirebaseDb(); } catch (e) {
+                         console.error("CRITICAL FIREBASE INITIALIZATION ERROR on webhook call:", e.message);
+                         await sendWhatsAppMessage(chatId, MESSAGES.db_error);
+                         return;
+                    }
+                    await handleUserMessage(chatId, text, user);
+                    return;
+                }
+            }
+        }
+        
+        // Log if payload was received but not a standard text/interactive message
+        if (chatId) {
+            console.log(`[META PARSE] Ignoring non-text/non-interactive message or status update from ${chatId}.`);
+        } else {
+             console.warn("❌ WARNING: Unrecognized WhatsApp webhook payload structure or non-message event received.");
+        }
+
+
+    } catch (error) {
+        console.error("❌ CRITICAL WEBHOOK PARSING ERROR:", error.message);
+        // If parsing fails, and we have the chatId, try to send an error message back.
+        if (chatId) {
+            await sendWhatsAppMessage(chatId, "❌ Sorry, I received an unknown message format. Please try sending only plain text.");
+        }
+    }
 });
 
 // --- RAZORPAY WEBHOOK ENDPOINT ---
