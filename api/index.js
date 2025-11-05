@@ -303,9 +303,12 @@ async function sendWhatsAppMessage(chatId, text, replyMarkup = null) {
         };
 
         const phone_number_id = '837590122771193'; // Using the ID from the Meta Quickstart page.
+        const url = `${WHATSAPP_API_URL}${phone_number_id}/messages`;
+        
+        console.log(`[OUTBOUND] Attempting POST to ${url} for chat ${chatId}. Token present: ${!!WHATSAPP_TOKEN}`); // ADDED LOG
 
         // Send message using Meta Cloud API
-        const response = await axios.post(`${WHATSAPP_API_URL}${phone_number_id}/messages`, payload, {
+        const response = await axios.post(url, payload, {
             headers: {
                 'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
                 'Content-Type': 'application/json'
@@ -314,11 +317,13 @@ async function sendWhatsAppMessage(chatId, text, replyMarkup = null) {
 
         console.log(`[WHATSAPP] Message sent successfully to ${chatId}. Status: ${response.status}. Content: ${formattedText.substring(0, 50)}...`);
     } catch (error) {
-        // Generic error logging for WhatsApp API failure
-        console.error(`❌ WHATSAPP API ERROR for ${chatId}: ${error.message || error.response?.data?.error?.message}`);
-        // Log status 400 errors from Meta
-        if (error.response && error.response.status === 400) {
-            console.error("Meta API 400 Error Details:", error.response.data);
+        // DETAILED ERROR LOGGING
+        console.error(`❌ WHATSAPP API ERROR for ${chatId}: ${error.message}`);
+        if (error.response) {
+            console.error(`Meta Response Status: ${error.response.status}`);
+            console.error(`Meta Error Details:`, error.response.data); // Dumps 401/400 details
+        } else {
+            console.error("Network/Other Error:", error);
         }
     }
 }
