@@ -305,7 +305,8 @@ async function sendWhatsAppMessage(chatId, text, replyMarkup = null) {
         const phone_number_id = '837590122771193'; // Using the ID from the Meta Quickstart page.
         const url = `${WHATSAPP_API_URL}${phone_number_id}/messages`;
         
-        console.log(`[OUTBOUND] Attempting POST to ${url} for chat ${chatId}. Token present: ${!!WHATSAPP_TOKEN}`); // ADDED LOG
+        console.log(`[OUTBOUND] Preparing POST to ${url}. Target: ${chatId}`); // MODIFIED LOG
+        console.log(`[DEBUG_TOKEN] Status: ${WHATSAPP_TOKEN ? 'Present' : 'MISSING'}. Starts with: ${WHATSAPP_TOKEN ? WHATSAPP_TOKEN.substring(0, 5) + '...' : 'N/A'}`); // MODIFIED LOG
 
         // Send message using Meta Cloud API
         const response = await axios.post(url, payload, {
@@ -1656,9 +1657,11 @@ async function startUserRegistration(chatId, user) {
 
         if (doc.exists) {
             const userName = user.first_name || 'User';
+            console.log(`[DEBUG_FLOW] Sending welcome back message to ${chatId}.`); // ADDED DEBUG
             await sendWhatsAppMessage(chatId, MESSAGES.welcome_back.replace('{name}', userName));
             await sendHelpMessage(chatId);
         } else {
+            console.log(`[DEBUG_FLOW] Starting registration flow for ${chatId}.`); // ADDED DEBUG
             await sendWhatsAppMessage(chatId, MESSAGES.prompt_role);
             await saveAppState(chatId, 'AWAITING_ROLE_SELECTION', {});
         }
@@ -2251,12 +2254,10 @@ async function createPaymentOrder(chatId, bookingData) {
 
         const paymentUrl = `https://rzp.io/i/${order.id}`;
 
-        const response = MESSAGES.payment_required
+        await sendWhatsAppMessage(chatId, MESSAGES.payment_required
             .replace('{amount}', (amount / 100).toFixed(2))
             .replace('{orderId}', order.id)
-            .replace('{paymentUrl}', paymentUrl);
-
-        await sendWhatsAppMessage(chatId, response + "\n\n*Type 'Confirm Payment' after paying, or 'Cancel Booking'.*");
+            .replace('{paymentUrl}', paymentUrl) + "\n\n*Type 'Confirm Payment' after paying, or 'Cancel Booking'.*");
 
     } catch (e) {
         console.error("Razorpay Error:", e.message);
