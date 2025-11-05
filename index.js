@@ -10,6 +10,8 @@ const crypto = require('crypto');
 // and these variables would contain the real endpoint and auth token.
 const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || 'https://api.whatsapp.com/v1/messages/';
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+// NEW: This is the token that must match the 'Verify Token' entered in Meta's dashboard.
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN; 
 
 // --- Common Configuration ---
 const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -881,13 +883,13 @@ async function handleUserProfile(chatId) {
             const joinDate = user.join_date ? user.join_date.toDate().toLocaleDateString('en-IN') : 'N/A';
 
             const profileText = `👤 *Your Profile*\n\n` +
-                               `*Name:* ${user.name || 'Not set'}\n` +
-                               `*Chat ID:* \`${user.chat_id}\`\n` +
-                               `*Phone:* ${user.phone || 'Not set'}\n` +
-                               `*Aadhar:* ${user.aadhar || 'Not set'}\n` +
-                               `*Role:* ${user.role || 'user'}\n` +
-                               `*Status:* ${user.status || 'N/A'}\n` +
-                               `*Member since:* ${joinDate}`;
+                                `*Name:* ${user.name || 'Not set'}\n` +
+                                `*Chat ID:* \`${user.chat_id}\`\n` +
+                                `*Phone:* ${user.phone || 'Not set'}\n` +
+                                `*Aadhar:* ${user.aadhar || 'Not set'}\n` +
+                                `*Role:* ${user.role || 'user'}\n` +
+                                `*Status:* ${user.status || 'N/A'}\n` +
+                                `*Member since:* ${joinDate}`;
 
             await sendWhatsAppMessage(chatId, profileText);
             return;
@@ -965,11 +967,11 @@ async function showSearchResults(chatId, from, to, date) {
             const data = doc.data();
             if (data.departure_time.startsWith(date)) {
                  buses.push({
-                    busID: data.bus_id, from: data.from, to: data.to,
-                    date: data.departure_time.split(' ')[0], time: data.departure_time.split(' ')[1],
-                    owner: data.bus_name, price: data.price, busType: data.bus_type,
-                    rating: data.rating || 4.2, total_seats: data.total_seats || 40
-                });
+                     busID: data.bus_id, from: data.from, to: data.to,
+                     date: data.departure_time.split(' ')[0], time: data.departure_time.split(' ')[1],
+                     owner: data.bus_name, price: data.price, busType: data.bus_type,
+                     rating: data.rating || 4.2, total_seats: data.total_seats || 40
+                 });
             }
         });
 
@@ -1550,7 +1552,7 @@ async function handleManagerInput(chatId, text, state) {
                     if (data.boardingPoints.length === 0) {
                         await sendWhatsAppMessage(chatId, "⚠️ No boarding points added. Proceeding without them.");
                     } else if (data.boardingPoints.length >= 5 && text.toUpperCase() !== 'DONE') {
-                         await sendWhatsAppMessage(chatId, "⚠️ Max 5 boarding points reached. Proceeding to save.");
+                        await sendWhatsAppMessage(chatId, "⚠️ Max 5 boarding points reached. Proceeding to save.");
                     }
 
                     // --- FINAL BUS COMMIT ---
@@ -2605,6 +2607,31 @@ async function handleUserMessage(chatId, text, user) {
 }
 
 /* --------------------- Main Webhook Handler (Adapted for Generic WhatsApp Payload) ---------------------- */
+
+// NEW: GET route for webhook verification
+app.get('/api/webhook', (req, res) => {
+    console.log('--- RECEIVED META VERIFICATION REQUEST ---');
+    
+    // 1. Get the required query parameters
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    
+    console.log(`Mode: ${mode}, Token: ${token}, Challenge: ${challenge}`);
+    console.log(`Expected VERIFY_TOKEN from ENV: ${VERIFY_TOKEN}`);
+
+    // 2. Check the mode and the token
+    if (mode === 'subscribe' && token === VERIFY_TOKEN && challenge) {
+        // 3. Respond with the challenge to complete verification
+        console.log('✅ WEBHOOK VERIFIED. Sending Challenge back.');
+        res.status(200).send(challenge);
+    } else {
+        // 4. If any detail is wrong, fail the request
+        console.error('❌ WEBHOOK VERIFICATION FAILED. Token mismatch or missing parameters.');
+        res.status(403).send('Forbidden: Verification token mismatch or missing parameters.');
+    }
+});
+
 
 app.post('/api/webhook', async (req, res) => {
     // --- SIMULATED GENERIC WHATSAPP WEBHOOK PAYLOAD ---
