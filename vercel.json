@@ -1,0 +1,25 @@
+{
+"version": 2,
+"builds": [
+{
+"src": "api/index.js",
+"use": "@vercel/node"
+}
+],
+"routes": [
+{
+"src": "/api/webhook",
+"dest": "/api/index.js",
+"methods": ["GET", "POST"]
+},
+{
+"src": "/api/razorpay/webhook",
+"dest": "/api/index.js",
+"methods": ["POST"]
+},
+{
+"src": "/(.*)",
+"dest": "/api/index.js"
+}
+]
+}
